@@ -1,0 +1,10 @@
+config.ini
+*.session
+*.session-journal
+data.json
+data.json.tmp
+bot.lock
+bot.log
+media/
+__pycache__/
+venv/
