@@ -31,7 +31,26 @@ enviados por ti, no por un bot), y contrólalo todo desde un bot de Telegram:
 3. **Tu ID**: habla con **@userinfobot** y te dice tu ID numérico.
 4. **Abre tu bot y pulsa *Iniciar*** (si no, el bot no puede escribirte).
 
-## 2. Instalar en HostGator (3 pasos)
+## 2. Instalar en tu VPS de HostGator (Ubuntu) — recomendado
+
+1. En el panel de HostGator pulsa **Abrir consola** (o conéctate por SSH: `ssh root@IP_DE_TU_VPS`).
+2. Copia y pega:
+   ```bash
+   apt-get update && apt-get install -y git python3-pip
+   cd ~ && git clone https://github.com/pedroenriquebardajimendoza/Bottgfa.git bottgfa
+   cd bottgfa && git checkout claude/gracious-gauss-nmkjt5
+   bash instalar.sh
+   ```
+   Si el repositorio es privado, GitHub te pedirá usuario y un *token* (GitHub → Settings →
+   Developer settings → Personal access tokens) en lugar de la contraseña.
+3. Responde lo que te pide (datos de Telegram, tu número y el código). Al final el bot queda
+   funcionando **24/7 como servicio** y se reinicia solo si el VPS se reinicia.
+4. Escribe `/start` a tu bot. ✅
+
+Comandos útiles: `systemctl status bottgfa` (estado) · `systemctl restart bottgfa` (reiniciar) ·
+`tail -f ~/bottgfa/bot.log` (registro) · `python3 bot.py --check` (diagnóstico).
+
+### Alternativa: hosting compartido (sin VPS, con cron)
 
 1. En **cPanel → Terminal** (o por SSH):
    ```bash
