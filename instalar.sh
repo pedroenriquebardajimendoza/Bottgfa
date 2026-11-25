@@ -15,9 +15,17 @@ if [ ! -f config.ini ]; then
   echo "== 2/5 Configuración =="
   echo "(api_id y api_hash: https://my.telegram.org | token: @BotFather | tu ID: @userinfobot)"
   read -rp "api_id: " API_ID
-  read -rp "api_hash: " API_HASH
-  read -rp "Token del bot: " TOKEN
-  read -rp "Tu ID de Telegram: " ADMIN
+  set -- $API_ID
+  if [ $# -ge 4 ]; then  # pegó los 4 datos en una sola línea
+    API_ID=$1; API_HASH=$2; TOKEN=$3; ADMIN=$4
+  else
+    read -rp "api_hash: " API_HASH
+    read -rp "Token del bot: " TOKEN
+    read -rp "Tu ID de Telegram: " ADMIN
+  fi
+  for v in "$API_ID" "$ADMIN"; do
+    case "$v" in ''|*[!0-9]*) echo "❌ api_id y tu ID deben ser solo números. Vuelve a ejecutar: bash instalar.sh"; exit 1;; esac
+  done
   sed -e "s|^api_id = .*|api_id = $API_ID|" -e "s|^api_hash = .*|api_hash = $API_HASH|" \
       -e "s|^bot_token = .*|bot_token = $TOKEN|" -e "s|^admin_id = .*|admin_id = $ADMIN|" \
       config.example.ini > config.ini
