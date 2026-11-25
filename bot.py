@@ -10,7 +10,9 @@ Programador de mensajes para Telegram.
 
 Modos de ejecución:
     python3 bot.py           -> modo continuo (VPS / servidor propio)
+    python3 bot.py --check   -> diagnóstico (conexión, token, sesión)
     python3 bot.py --cron    -> modo cron: trabaja ~55 s y termina.
+    python3 bot.py --cron 870 -> idem ~14,5 min (si tu cron es cada 15 min)
                                 Pensado para hosting compartido (HostGator)
                                 ejecutándolo cada minuto con cron.
 """
@@ -767,7 +769,56 @@ def acquire_lock():
         return False
 
 
+async def check(cfg):
+    """Diagnóstico: comprueba Python, el bot, la conexión con Telegram y tu sesión."""
+    ok = True
+    print('Python %s ... %s' % (sys.version.split()[0], 'OK' if sys.version_info >= (3, 6) else 'MUY ANTIGUO (necesitas 3.6+)'))
+    try:
+        me = BotAPI(cfg['bot_token']).call('getMe')
+        print('Bot de control @%s ... OK' % me['username'])
+    except Exception as e:
+        ok = False
+        print('Bot de control ... ERROR: %s (¿token correcto? ¿el hosting bloquea api.telegram.org?)' % e)
+    client = TelegramClient(cfg['session'], cfg['api_id'], cfg['api_hash'])
+    try:
+        await asyncio.wait_for(client.connect(), 30)
+        print('Conexión de tu cuenta con Telegram ... OK')
+        if await client.is_user_authorized():
+            me = await client.get_me()
+            print('Sesión de tu cuenta (%s) ... OK' % (me.first_name or me.id))
+            if me.id != cfg['admin_id']:
+                print('  Aviso: admin_id (%d) no es tu ID (%d); corrígelo en config.ini' % (cfg['admin_id'], me.id))
+        else:
+            ok = False
+            print('Sesión de tu cuenta ... FALTA: ejecuta python3 login.py')
+    except Exception as e:
+        ok = False
+        print('Conexión de tu cuenta ... ERROR: %s (¿api_id/api_hash? ¿el hosting bloquea la salida?)' % (str(e) or e.__class__.__name__))
+    finally:
+        await client.disconnect()
+    print('\n✅ Todo listo.' if ok else '\n❌ Hay problemas: revisa los mensajes de arriba.')
+
+
+def cron_seconds():
+    """--cron [segundos]: cuánto trabaja cada ejecución (por defecto 55 = cron cada minuto)."""
+    i = sys.argv.index('--cron')
+    if i + 1 < len(sys.argv) and sys.argv[i + 1].isdigit():
+        return max(20, int(sys.argv[i + 1]))
+    return 55
+
+
+def run_coro(coro):
+    if hasattr(asyncio, 'run'):
+        asyncio.run(coro)
+    else:  # Python 3.6
+        asyncio.get_event_loop().run_until_complete(coro)
+
+
 def main():
+    if '--check' in sys.argv:
+        logging.basicConfig(level=logging.ERROR)
+        run_coro(check(load_config()))
+        return
     cron = '--cron' in sys.argv
     handlers = [logging.FileHandler(LOG_PATH, encoding='utf-8')]
     if not cron:
@@ -782,11 +833,7 @@ def main():
         return
 
     cfg = load_config()
-    coro = run(cfg, max_seconds=55 if cron else None)
-    if hasattr(asyncio, 'run'):
-        asyncio.run(coro)
-    else:  # Python 3.6
-        asyncio.get_event_loop().run_until_complete(coro)
+    run_coro(run(cfg, max_seconds=cron_seconds() if cron else None))
 
 
 if __name__ == '__main__':

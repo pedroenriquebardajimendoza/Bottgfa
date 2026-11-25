@@ -31,69 +31,29 @@ enviados por ti, no por un bot), y contrólalo todo desde un bot de Telegram:
 3. **Tu ID**: habla con **@userinfobot** y te dice tu ID numérico.
 4. **Abre tu bot y pulsa *Iniciar*** (si no, el bot no puede escribirte).
 
-## 2. Instalar en HostGator (hosting compartido)
+## 2. Instalar en HostGator (3 pasos)
 
-### 2.1 Activar SSH / Terminal
-En **cPanel** busca **Terminal** (o activa el acceso **SSH** desde el portal de HostGator).
-Todo lo siguiente se escribe ahí.
+1. En **cPanel → Terminal** (o por SSH):
+   ```bash
+   cd ~ && git clone https://github.com/pedroenriquebardajimendoza/Bottgfa.git bottgfa && cd bottgfa
+   ```
+   (Sin git: sube los archivos con el Administrador de archivos a `~/bottgfa`, **fuera de `public_html`**.)
+2. Ejecuta el instalador y responde lo que te pida:
+   ```bash
+   bash instalar.sh
+   ```
+   Instala Telethon, crea `config.ini`, inicia sesión con tu cuenta (número + código de Telegram),
+   **comprueba que todo conecta** y deja programado el cron cada minuto.
+3. Escribe `/start` a tu bot. ✅
 
-### 2.2 Subir los archivos
-Opción A — con git (si está disponible):
-```bash
-cd ~
-git clone https://github.com/pedroenriquebardajimendoza/Bottgfa.git bottgfa
-cd bottgfa
-```
-Opción B — sube los archivos (`bot.py`, `login.py`, `config.example.ini`, `requirements.txt`)
-con el **Administrador de archivos** de cPanel a una carpeta `bottgfa` **fuera de `public_html`**
-(así nadie puede descargarlos desde la web).
+Si el instalador no pudo crear el cron, añádelo en **cPanel → Cron Jobs** con la línea que te muestra.
+Si tu plan no permite cron cada minuto, usa cada 15 min con `bot.py --cron 870`
+(el instalador te muestra la línea exacta).
 
-### 2.3 Instalar la librería
-```bash
-cd ~/bottgfa
-python3 --version          # necesitas 3.6 o superior
-python3 -m pip install --user -r requirements.txt
-```
-Si `pip` no existe, prueba con `pip3 install --user telethon`.
-
-### 2.4 Configurar
-```bash
-cp config.example.ini config.ini
-nano config.ini            # pon api_id, api_hash, bot_token y admin_id
-chmod 600 config.ini
-```
-
-### 2.5 Iniciar sesión con tu cuenta (solo una vez)
-```bash
-python3 login.py
-```
-Te pedirá tu número (con prefijo, ej. `+34600111222`), el código que te llega por Telegram y
-tu contraseña de dos pasos si la tienes. Se crea el archivo `cuenta.session`.
+Comprobar en cualquier momento que todo funciona: `python3 bot.py --check`
 
 > ⚠️ **`cuenta.session` y `config.ini` dan acceso a tu cuenta. No los compartas ni los subas a GitHub**
 > (ya están en `.gitignore`).
-
-### 2.6 Probar
-```bash
-python3 bot.py
-```
-Escribe `/start` a tu bot: debe responder con el menú. Para pararlo pulsa `Ctrl + C`.
-
-### 2.7 Dejarlo funcionando siempre (cron)
-Los hostings compartidos cierran los programas que se quedan abiertos, así que se usa **cron**:
-el bot se ejecuta cada minuto, trabaja ~55 segundos y se cierra (nunca se ejecutan dos a la vez).
-
-En **cPanel → Trabajos de cron (Cron Jobs)** añade uno con la configuración
-**"Una vez por minuto" (`* * * * *`)** y este comando (cambia `TUUSUARIO` por tu usuario de cPanel):
-
-```
-cd /home/TUUSUARIO/bottgfa && /usr/bin/python3 bot.py --cron >/dev/null 2>&1
-```
-
-> Puedes ver la ruta exacta con `pwd` (dentro de la carpeta) y `which python3`.
-> Si tu plan no permite cron cada minuto, el bot funcionará igual pero responderá más lento.
-
-¡Listo! Ya puedes gestionarlo todo desde el bot.
 
 ## 3. Uso
 
@@ -120,7 +80,8 @@ Los registros quedan en `bot.log`. La configuración de los mensajes se guarda e
 
 | Problema | Solución |
 |---|---|
-| El bot no responde | Revisa `bot.log`. Comprueba que el cron está bien y que `admin_id` es tu ID. |
+| El bot no responde | Ejecuta `python3 bot.py --check`. Revisa `bot.log`, el cron y que `admin_id` es tu ID. |
+| `--check` da error de conexión | HostGator bloquea la salida a Telegram: pide a soporte que abran `api.telegram.org` y el puerto 443 saliente, o usa un VPS. |
 | "La cuenta no ha iniciado sesión" | Ejecuta `python3 login.py` en la carpeta del bot. |
 | No aparece un grupo | Pulsa **🔄 Actualizar grupos**. Tu cuenta debe estar dentro del grupo. |
 | Falla en un grupo concreto | Puede que el grupo no permita escribir (solo admins, modo lento…). |
