@@ -36,6 +36,7 @@ fi
 
 echo "== 3/5 Inicio de sesión con tu cuenta =="
 ls ./*.session >/dev/null 2>&1 && echo "Sesión ya existente." || "$PY" login.py
+ls ./*.session >/dev/null 2>&1 || { echo "❌ No se inició sesión. Vuelve a ejecutar: bash instalar.sh"; exit 1; }
 chmod 600 ./*.session 2>/dev/null || true
 
 echo "== 4/5 Diagnóstico =="

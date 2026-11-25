@@ -18,8 +18,20 @@ from bot import load_config
 async def main():
     cfg = load_config()
     client = TelegramClient(cfg['session'], cfg['api_id'], cfg['api_hash'])
-    await client.start()
+    def ask_phone():
+        while True:
+            phone = input('Tu número de teléfono de Telegram (con prefijo, ej. +52 81 1234 5678): ').strip()
+            if ':' in phone or not phone.lstrip('+').replace(' ', '').isdigit():
+                print('❌ Eso no es un número de teléfono (no pongas el token del bot aquí).')
+                continue
+            return phone
+
+    await client.start(phone=ask_phone)
     me = await client.get_me()
+    if me.bot:
+        await client.log_out()
+        print('❌ Se inició sesión como un BOT, no con tu cuenta. Vuelve a ejecutar: python3 login.py')
+        return
     print('\n✅ Sesión iniciada como: %s %s (@%s), ID: %d' % (
         me.first_name or '', me.last_name or '', me.username or '-', me.id))
     if me.id != cfg['admin_id']:
