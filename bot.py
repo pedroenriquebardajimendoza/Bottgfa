@@ -67,8 +67,8 @@ def load_config():
         'pause_min': float(env.get('pausa_min', '4')),
         'pause_max': float(env.get('pausa_max', '10')),
         'notify': env.get('notificar_envios', 'si').strip().lower() in ('si', 'sí', 'yes', 'true', '1'),
-        'price_url': cp.get('precio', 'url', fallback='https://pbm.capital').strip(),
-        'price_regex': cp.get('precio', 'patron', fallback=r'([0-9]+[.,][0-9]+)\s*MXN', raw=True).strip(),
+        'price_url': cp.get('precio', 'url', fallback='https://pbm.capital/api/precio').strip(),
+        'price_regex': cp.get('precio', 'patron', fallback=r'"price"\s*:\s*"?([0-9]+(?:[.,][0-9]+)?)', raw=True).strip(),
         'price_index': cp.getint('precio', 'posicion', fallback=1),
     }
 
@@ -182,7 +182,12 @@ def fetch_price(cfg):
     idx = cfg['price_index'] - 1
     if not found or idx >= len(found):
         return None, found, page
-    return found[idx].replace(',', '.'), found, page
+    value = found[idx].replace(',', '.')
+    try:
+        value = '%.2f' % float(value)  # 20.3 -> 20.30
+    except ValueError:
+        pass
+    return value, found, page
 
 
 def to_telethon_entities(entities):
