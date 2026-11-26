@@ -28,6 +28,12 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime
+
+try:
+    from zoneinfo import ZoneInfo  # Python 3.9+
+except ImportError:
+    ZoneInfo = None
 
 try:
     import fcntl
@@ -70,6 +76,9 @@ def load_config():
         'price_url': cp.get('precio', 'url', fallback='https://pbm.capital/api/precio').strip(),
         'price_regex': cp.get('precio', 'patron', fallback=r'"price"\s*:\s*"?([0-9]+(?:[.,][0-9]+)?)', raw=True).strip(),
         'price_index': cp.getint('precio', 'posicion', fallback=1),
+        'tz': cp.get('horario', 'zona', fallback='America/Havana').strip(),
+        'quiet_start': cp.get('horario', 'silencio_desde', fallback='23:59').strip(),
+        'quiet_end': cp.get('horario', 'silencio_hasta', fallback='08:00').strip(),
     }
 
 
@@ -143,6 +152,34 @@ def fmt_remaining(seconds):
         return 'ahora mismo'
     minutes = int((seconds + 59) // 60)
     return 'en ' + fmt_interval(minutes)
+
+
+def local_now(cfg):
+    if ZoneInfo is not None:
+        try:
+            return datetime.now(ZoneInfo(cfg['tz']))
+        except Exception:
+            pass
+    return datetime.now()
+
+
+def _hhmm(text):
+    h, m = text.split(':')
+    return int(h) * 60 + int(m)
+
+
+def in_quiet_hours(cfg, now=None):
+    """True si estamos en el horario de silencio (por defecto 23:59-08:00 hora de Cuba)."""
+    if not cfg.get('quiet_start') or not cfg.get('quiet_end'):
+        return False
+    start, end = _hhmm(cfg['quiet_start']), _hhmm(cfg['quiet_end'])
+    now = now or local_now(cfg)
+    t = now.hour * 60 + now.minute
+    if start == end:
+        return False
+    if start < end:
+        return start <= t < end
+    return t >= start or t < end
 
 
 def utf16len(s):
@@ -335,8 +372,11 @@ class App:
         active = sum(1 for m in msgs.values() if m['enabled'])
         text = ('<b>📬 Programador de mensajes</b>\n\n'
                 'Mensajes: <b>%d</b> (activos: <b>%d</b>)\n'
-                'Grupos conocidos: <b>%d</b>\n\n'
-                'Elige una opción:') % (len(msgs), active, len(self.data['groups']))
+                'Grupos conocidos: <b>%d</b>\n'
+                '🌙 Sin publicar de %s a %s (hora de Cuba)%s\n\n'
+                'Elige una opción:') % (len(msgs), active, len(self.data['groups']),
+                                        self.cfg['quiet_start'], self.cfg['quiet_end'],
+                                        ' — <b>ahora en silencio</b>' if in_quiet_hours(self.cfg) else '')
         return text, kb([
             [('📋 Mis mensajes', 'list'), ('➕ Nuevo mensaje', 'new')],
             [('🔄 Actualizar lista de grupos', 'refresh')],
@@ -794,6 +834,8 @@ class App:
             await self.send(text)
 
     async def send_due(self):
+        if in_quiet_hours(self.cfg):
+            return  # horario de silencio: no se publica nada automáticamente
         now = time.time()
         for mid, m in list(self.data['messages'].items()):
             if not m['enabled'] or not m['groups'] or (not m['text'] and not m.get('photo')):
