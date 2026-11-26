@@ -67,6 +67,9 @@ def load_config():
         'pause_min': float(env.get('pausa_min', '4')),
         'pause_max': float(env.get('pausa_max', '10')),
         'notify': env.get('notificar_envios', 'si').strip().lower() in ('si', 'sí', 'yes', 'true', '1'),
+        'price_url': cp.get('precio', 'url', fallback='https://pbm.capital').strip(),
+        'price_regex': cp.get('precio', 'patron', fallback=r'([0-9]+[.,][0-9]+)\s*MXN', raw=True).strip(),
+        'price_index': cp.getint('precio', 'posicion', fallback=1),
     }
 
 
@@ -140,6 +143,46 @@ def fmt_remaining(seconds):
         return 'ahora mismo'
     minutes = int((seconds + 59) // 60)
     return 'en ' + fmt_interval(minutes)
+
+
+def utf16len(s):
+    return len(s.encode('utf-16-le')) // 2
+
+
+def apply_vars(text, entities, values):
+    """Sustituye {precio} (y otras variables) en el texto ajustando los offsets
+    UTF-16 de las entities para que el formato y los emojis premium no se descoloquen."""
+    ents = [dict(e) for e in entities or []]
+    matches = [m for m in re.finditer(r'\{(\w+)\}', text) if m.group(1).lower() in values]
+    for m in reversed(matches):
+        new = str(values[m.group(1).lower()])
+        start16, end16 = utf16len(text[:m.start()]), utf16len(text[:m.end()])
+        delta = utf16len(new) - (end16 - start16)
+        for e in ents:
+            eo, ee = e['offset'], e['offset'] + e['length']
+            if eo >= end16:
+                eo += delta
+                ee += delta
+            elif ee >= end16:
+                ee += delta
+            e['offset'], e['length'] = eo, ee - eo
+        text = text[:m.start()] + new + text[m.end():]
+    return text, [e for e in ents if e['length'] > 0]
+
+
+def fetch_price(cfg):
+    """Descarga la página del precio y devuelve (precio, todas_las_coincidencias)."""
+    req = urllib.request.Request(cfg['price_url'], headers={
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                      '(KHTML, like Gecko) Chrome/124.0 Safari/537.36'})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        page = r.read().decode('utf-8', 'replace')
+    found = re.findall(cfg['price_regex'], page)
+    found = [f if isinstance(f, str) else f[0] for f in found]
+    idx = cfg['price_index'] - 1
+    if not found or idx >= len(found):
+        return None, found, page
+    return found[idx].replace(',', '.'), found, page
 
 
 def to_telethon_entities(entities):
@@ -331,7 +374,9 @@ class App:
                 '%s\n'
                 '<b>Texto:</b>\n<blockquote>%s</blockquote>') % (
             esc(m['name']), status, fmt_interval(m['interval']), len(m['groups']), groups_txt,
-            '<b>Imagen:</b> sí 🖼\n' if m.get('photo') else '',
+            ('<b>Imagen:</b> sí 🖼\n' if m.get('photo') else '') +
+            (('<b>Precio actual:</b> %s\n' % esc((self.data.get('price') or {}).get('value', '¿?')))
+             if '{precio}' in m['text'].lower() else ''),
             ('<b>Último resultado:</b> %s\n' % esc(m['last_result'])) if m.get('last_result') else '',
             esc(preview))
         toggle = ('⏸ Pausar', 'tog:%s' % mid) if m['enabled'] else ('▶️ Activar', 'tog:%s' % mid)
@@ -540,7 +585,8 @@ class App:
                          'enabled': False, 'last_sent': 0, 'last_result': ''}
             self.data['state'] = {'action': 'text', 'mid': mid}
             await self.show(('<b>➕ Nuevo mensaje</b>\n\nEnvíame ahora el <b>texto</b> que quieres '
-                             'publicar (puedes usar negrita, cursiva, enlaces, emojis…).\n'
+                             'publicar (puedes usar negrita, cursiva, enlaces, emojis premium…).\n'
+                             'Escribe <code>{precio}</code> donde quieras el precio actual de la web.\n'
                              'También puedes enviar una <b>foto con texto</b>.\n\n/cancelar para salir.',
                              None), msg_id)
         elif cmd == 'm':
@@ -636,16 +682,19 @@ class App:
             pass
 
     async def preview(self, mid):
+        """Envía la vista previa a tus «Mensajes guardados» desde tu cuenta, para verla
+        exactamente como saldrá en los grupos (con emojis premium y el precio actual)."""
         m = self.data['messages'][mid]
+        if not m['text'] and not m.get('photo'):
+            await self.send('(Este mensaje no tiene texto todavía)')
+            return
         try:
-            if m.get('photo_file_id'):
-                await self.api('sendPhoto', chat_id=self.admin, photo=m['photo_file_id'],
-                               caption=m['text'], caption_entities=m['entities'])
-            elif m['text']:
-                await self.api('sendMessage', chat_id=self.admin, text=m['text'], entities=m['entities'])
-            else:
-                await self.send('(Este mensaje no tiene texto todavía)')
-        except BotAPIError as e:
+            client = await self.user_client()
+            text, raw_entities = await self.render(m)
+            await self.send_one(client, 'me', m, text, raw_entities)
+            await self.send('👁 Vista previa enviada a tus <b>Mensajes guardados</b> '
+                            '(así se verá en los grupos).')
+        except Exception as e:
             await self.send('No pude mostrar la vista previa: %s' % esc(e))
 
     # ---------- envío con tu cuenta ----------
@@ -664,22 +713,49 @@ class App:
         self.data['groups_updated'] = time.time()
         return len(groups)
 
-    async def send_one(self, client, gid, m):
+    async def send_one(self, client, gid, m, text, raw_entities):
         try:
-            entity = await client.get_input_entity(int(gid))
+            entity = await client.get_input_entity(gid if gid == 'me' else int(gid))
         except ValueError:
             await client.get_dialogs()  # recarga la caché de chats
             entity = await client.get_input_entity(int(gid))
-        ents = to_telethon_entities(m['entities'])
+        ents = to_telethon_entities(raw_entities)
         if m.get('photo'):
             path = os.path.join(MEDIA_DIR, m['photo'])
-            await client.send_file(entity, path, caption=m['text'], formatting_entities=ents)
+            await client.send_file(entity, path, caption=text, formatting_entities=ents)
         else:
-            await client.send_message(entity, m['text'], formatting_entities=ents)
+            await client.send_message(entity, text, formatting_entities=ents)
+
+    async def current_price(self):
+        """Precio actual (caché de 2 min). Si la web falla, usa el último bueno de < 6 h."""
+        cache = self.data.get('price') or {}
+        if cache.get('value') and time.time() - cache.get('ts', 0) < 120:
+            return cache['value']
+        loop = asyncio.get_event_loop()
+        try:
+            value, _, _ = await loop.run_in_executor(None, fetch_price, self.cfg)
+        except Exception as e:
+            log.warning('No pude leer el precio: %s', e)
+            value = None
+        if value:
+            self.data['price'] = {'value': value, 'ts': time.time()}
+            self.save()
+            return value
+        if cache.get('value') and time.time() - cache.get('ts', 0) < 6 * 3600:
+            return cache['value']
+        raise RuntimeError('no pude obtener el precio de %s' % self.cfg['price_url'])
+
+    async def render(self, m):
+        """Texto final del mensaje con las variables ({precio}) ya sustituidas."""
+        values = {}
+        if re.search(r'\{precio\}', m['text'], re.I):
+            values['precio'] = await self.current_price()
+        return apply_vars(m['text'], m['entities'], values)
 
     async def deliver(self, mid, manual=False):
         m = self.data['messages'][mid]
         client = await self.user_client()
+        text, raw_entities = await self.render(m)
         ok, failed = 0, []
         for i, gid in enumerate(list(m['groups'])):
             name = self.data['groups'].get(gid, gid)
@@ -687,7 +763,7 @@ class App:
                 await asyncio.sleep(random.uniform(self.cfg['pause_min'], self.cfg['pause_max']))
             for attempt in (1, 2):
                 try:
-                    await self.send_one(client, gid, m)
+                    await self.send_one(client, gid, m, text, raw_entities)
                     ok += 1
                     break
                 except errors.FloodWaitError as e:
@@ -815,6 +891,16 @@ def run_coro(coro):
 
 
 def main():
+    if '--precio' in sys.argv:
+        cfg = load_config()
+        print('Leyendo %s ...' % cfg['price_url'])
+        value, found, page = fetch_price(cfg)
+        print('Coincidencias con el patrón: %s' % (found[:10] or 'ninguna'))
+        print('Precio elegido (posicion=%d): %s' % (cfg['price_index'], value))
+        if not found:
+            hits = [l.strip()[:200] for l in page.splitlines() if 'mxn' in l.lower()][:10]
+            print('Líneas con "MXN" en la página:', *(hits or ['ninguna (el precio se carga con JavaScript)']), sep='\n  ')
+        return
     if '--check' in sys.argv:
         logging.basicConfig(level=logging.ERROR)
         run_coro(check(load_config()))

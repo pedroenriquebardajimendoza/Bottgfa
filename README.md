@@ -82,6 +82,13 @@ Comprobar en cualquier momento que todo funciona: `python3 bot.py --check`
 4. **⏱ Intervalo** → elige cada cuánto.
 5. **▶️ Activar** → se envía en breve y después cada X tiempo.
 
+**Precio automático:** escribe `{precio}` en el texto (ej. `Compro pesos ▶️ {precio} MXN`) y en cada envío
+se reemplaza por el precio actual de https://pbm.capital. Para comprobar qué precio lee: `python3 bot.py --precio`
+(la web y el patrón se cambian en la sección `[precio]` de `config.ini`).
+
+**Emojis premium:** se conservan tal cual (tu cuenta debe tener Telegram Premium). La **👁 Vista previa** llega a tus
+*Mensajes guardados* para que veas el mensaje exactamente como saldrá en los grupos.
+
 Para cambiar el texto más tarde: **📋 Mis mensajes** → el mensaje → **📝 Editar texto**.
 Comandos: `/start` o `/menu` (menú), `/cancelar` (cancelar lo que estés escribiendo), `/id`.
 
